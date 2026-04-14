@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GBC Analytics Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border-bottom: 1px solid #1e293b;
+            padding: 24px 32px;
+        }
+        .header h1 {
+            font-size: 24px;
+            font-weight: 700;
+            color: #f8fafc;
+        }
+        .header p {
+            color: #94a3b8;
+            margin-top: 4px;
+            font-size: 14px;
+        }
+        .dashboard {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .stat-card .label {
+            font-size: 13px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .stat-card .value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #f8fafc;
+            margin-top: 8px;
+        }
+        .stat-card .sub {
+            font-size: 12px;
+            color: #64748b;
+            margin-top: 4px;
+        }
+        .charts {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .chart-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .chart-card h3 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #f8fafc;
+        }
+        .chart-card canvas {
+            max-height: 300px;
+        }
+        .full-width {
+            grid-column: 1 / -1;
+        }
+        .table-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 20px;
+            overflow-x: auto;
+        }
+        .table-card h3 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #f8fafc;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th {
+            text-align: left;
+            padding: 10px 12px;
+            font-size: 12px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #334155;
+        }
+        td {
+            padding: 10px 12px;
+            font-size: 14px;
+            border-bottom: 1px solid #1e293b;
+        }
+        tr:hover td {
+            background: #334155;
+        }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .badge-new { background: #164e63; color: #22d3ee; }
+        .badge-high { background: #422006; color: #fb923c; }
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: #94a3b8;
+            font-size: 18px;
+        }
+        @media (max-width: 768px) {
+            .charts { grid-template-columns: 1fr; }
+            .stats { grid-template-columns: 1fr 1fr; }
+            .dashboard { padding: 16px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 GBC Analytics Dashboard</h1>
+        <p>Аналитика заказов — данные из RetailCRM → Supabase</p>
+    </div>
+    <div class="dashboard" id="app">
+        <div class="loading">Загрузка данных...</div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://mrxlzcfjlgjasntamxqa.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_j7flrOZfIi7CVlZXZ0Z-_w_eq2kwkJp';
+
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        async function loadData() {
+            const { data: orders, error } = await supabase
+                .from('orders')
+                .select('*')
+                .order('created_at', { ascending: true });
+
+            if (error) {
+                document.getElementById('app').innerHTML = `<div class="loading">Ошибка: ${error.message}</div>`;
+                return;
+            }
+
+            renderDashboard(orders);
+        }
+
+        function renderDashboard(orders) {
+            const totalOrders = orders.length;
+            const totalRevenue = orders.reduce((s, o) => s + Number(o.total_amount), 0);
+            const avgCheck = Math.round(totalRevenue / totalOrders);
+            const highValueOrders = orders.filter(o => Number(o.total_amount) > 50000).length;
+
+            // City stats
+            const cityStats = {};
+            orders.forEach(o => {
+                cityStats[o.city] = (cityStats[o.city] || 0) + 1;
+            });
+
+            // UTM stats
+            const utmStats = {};
+            orders.forEach(o => {
+                const src = o.utm_source || 'unknown';
+                utmStats[src] = (utmStats[src] || 0) + 1;
+            });
+
+            // Revenue by city
+            const revenueByCity = {};
+            orders.forEach(o => {
+                revenueByCity[o.city] = (revenueByCity[o.city] || 0) + Number(o.total_amount);
+            });
+
+            // Product stats
+            const productStats = {};
+            orders.forEach(o => {
+                (o.items || []).forEach(item => {
+                    const name = item.productName || 'Неизвестно';
+                    productStats[name] = (productStats[name] || 0) + (item.quantity || 1);
+                });
+            });
+
+            const app = document.getElementById('app');
+            app.innerHTML = `
+                <div class="stats">
+                    <div class="stat-card">
+                        <div class="label">Всего заказов</div>
+                        <div class="value">${totalOrders}</div>
+                        <div class="sub">за весь период</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Общая выручка</div>
+                        <div class="value">${(totalRevenue).toLocaleString('ru')} ₸</div>
+                        <div class="sub">сумма всех заказов</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Средний чек</div>
+                        <div class="value">${avgCheck.toLocaleString('ru')} ₸</div>
+                        <div class="sub">на заказ</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Крупные заказы</div>
+                        <div class="value">${highValueOrders}</div>
+                        <div class="sub">свыше 50 000 ₸</div>
+                    </div>
+                </div>
+
+                <div class="charts">
+                    <div class="chart-card">
+                        <h3>Заказы по городам</h3>
+                        <canvas id="cityChart"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <h3>Источники трафика (UTM)</h3>
+                        <canvas id="utmChart"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <h3>Выручка по городам</h3>
+                        <canvas id="revenueChart"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <h3>Популярные товары</h3>
+                        <canvas id="productChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="table-card full-width">
+                    <h3>Последние заказы</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Клиент</th>
+                                <th>Город</th>
+                                <th>Сумма</th>
+                                <th>Источник</th>
+                                <th>Статус</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${orders.slice(-15).reverse().map((o, i) => `
+                                <tr>
+                                    <td>${o.retailcrm_id}</td>
+                                    <td>${o.first_name} ${o.last_name}</td>
+                                    <td>${o.city}</td>
+                                    <td>${Number(o.total_amount) > 50000 ? '<span class="badge badge-high">' + Number(o.total_amount).toLocaleString('ru') + ' ₸</span>' : Number(o.total_amount).toLocaleString('ru') + ' ₸'}</td>
+                                    <td>${o.utm_source || '—'}</td>
+                                    <td><span class="badge badge-new">${o.status}</span></td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            // City chart
+            const colors = ['#06b6d4', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#ec4899', '#3b82f6'];
+            new Chart(document.getElementById('cityChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(cityStats),
+                    datasets: [{
+                        data: Object.values(cityStats),
+                        backgroundColor: colors
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } } }
+                }
+            });
+
+            // UTM chart
+            new Chart(document.getElementById('utmChart'), {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(utmStats),
+                    datasets: [{
+                        label: 'Заказы',
+                        data: Object.values(utmStats),
+                        backgroundColor: '#06b6d4',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#94a3b8' }, grid: { display: false } },
+                        y: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } }
+                    }
+                }
+            });
+
+            // Revenue chart
+            new Chart(document.getElementById('revenueChart'), {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(revenueByCity),
+                    datasets: [{
+                        label: 'Выручка, ₸',
+                        data: Object.values(revenueByCity),
+                        backgroundColor: '#8b5cf6',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    indexAxis: 'y',
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#94a3b8', callback: v => (v/1000) + 'K' }, grid: { color: '#1e293b' } },
+                        y: { ticks: { color: '#94a3b8' }, grid: { display: false } }
+                    }
+                }
+            });
+
+            // Product chart
+            const sortedProducts = Object.entries(productStats).sort((a, b) => b[1] - a[1]);
+            new Chart(document.getElementById('productChart'), {
+                type: 'bar',
+                data: {
+                    labels: sortedProducts.map(p => p[0].replace('Утягивающ', 'Утяг.').replace('Корректирующ', 'Корр.')),
+                    datasets: [{
+                        label: 'Продано шт.',
+                        data: sortedProducts.map(p => p[1]),
+                        backgroundColor: '#10b981',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    indexAxis: 'y',
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } },
+                        y: { ticks: { color: '#94a3b8', font: { size: 11 } }, grid: { display: false } }
+                    }
+                }
+            });
+        }
+
+        loadData();
+    </script>
+</body>
+</html>

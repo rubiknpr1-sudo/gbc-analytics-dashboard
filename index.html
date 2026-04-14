@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GBC Analytics Dashboard</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -156,20 +156,33 @@
         const SUPABASE_URL = 'https://mrxlzcfjlgjasntamxqa.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable_j7flrOZfIi7CVlZXZ0Z-_w_eq2kwkJp';
 
-        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
         async function loadData() {
-            const { data: orders, error } = await supabase
-                .from('orders')
-                .select('*')
-                .order('created_at', { ascending: true });
+            try {
+                if (!window.supabase) {
+                    document.getElementById('app').innerHTML = '<div class="loading">Ошибка: Supabase SDK не загружен</div>';
+                    return;
+                }
+                const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-            if (error) {
-                document.getElementById('app').innerHTML = `<div class="loading">Ошибка: ${error.message}</div>`;
-                return;
+                const { data: orders, error } = await client
+                    .from('orders')
+                    .select('*')
+                    .order('created_at', { ascending: true });
+
+                if (error) {
+                    document.getElementById('app').innerHTML = `<div class="loading">Ошибка БД: ${error.message}</div>`;
+                    return;
+                }
+
+                if (!orders || orders.length === 0) {
+                    document.getElementById('app').innerHTML = '<div class="loading">Нет данных в таблице orders</div>';
+                    return;
+                }
+
+                renderDashboard(orders);
+            } catch (e) {
+                document.getElementById('app').innerHTML = `<div class="loading">Ошибка: ${e.message}</div>`;
             }
-
-            renderDashboard(orders);
         }
 
         function renderDashboard(orders) {
